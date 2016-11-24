@@ -253,6 +253,6 @@ int SocketServer::handle_message_out(struct epoll_event &event)
 
 int main()
 {
-	SocketServer my_srv(80)
+	SocketServer my_srv(80);
 	return 0;
 }

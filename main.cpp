@@ -1,14 +1,21 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <sys/epoll.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <iostream>
-#include <string>
+#include <sys/socket.h>      
+#include <sys/wait.h>      
+#include <netinet/in.h>      
+#include <netinet/tcp.h>      
+#include <sys/epoll.h>      
+#include <sys/sendfile.h>      
+#include <sys/stat.h>      
+#include <unistd.h>      
+#include <stdio.h>      
+#include <stdlib.h>      
+#include <string.h>      
+#include <strings.h>      
+#include <fcntl.h>      
+#include <errno.h>       
 
-#define MAX_EVENTS 100000
+#define PORT 8080      
+
+#define MAX_EVENTS 1000
 #define MAX_LISTEN_BLOCK 20
 #define BUF_SIZE 2048
 
@@ -89,6 +96,9 @@ int SocketServer::init()
 	local_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	local_addr.sin_port = htons(port_);
 
+	int on = 1;
+	setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) );		//允许端口地址重用
+
 	if (bind(listen_fd_, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0)
 	{
 		perror("bind: ");
@@ -122,6 +132,8 @@ int SocketServer::init()
 
 int SocketServer::run()
 {
+	init();
+
 	for ( ; ; )
 	{
 		int fd_num = epoll_wait(epoll_fd_, events_, MAX_EVENTS, -1);
@@ -132,6 +144,9 @@ int SocketServer::run()
 		}
 		int n = 0;      
 		char buf[BUF_SIZE];
+		buf[BUF_SIZE-1] = '\0';
+		int nread;
+		int fd;
 
 		for (int i = 0; i < fd_num; ++i)
 		{
@@ -166,8 +181,9 @@ int SocketServer::run()
 			}
 			else if (events_[i].events & EPOLLIN)	//某个连接有消息过来
 			{
-				n  = 0
-                while ((nread = read(fd, buf+n, BUF_SIZE-1)) > 0)
+				n  = 0;
+
+                while ((nread = read(events_[i].data.fd, buf+n, BUF_SIZE-1)) > 0)
                 {
                     n += nread;
                 }
@@ -179,9 +195,9 @@ int SocketServer::run()
                 printf("n = %d, buf = %s", n, buf);
 
                 struct epoll_event ev;
-                ev.data.fd = fd;
-                ev.events = events_[i].events | EPOLLOUT;
-                if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev) < 0)
+                ev.data.fd = events_[i].data.fd;
+                ev.events =  EPOLLOUT | EPOLLET;
+                if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, events_[i].data.fd, &ev) < 0)
                 {
                     perror("epoll_ctl: mod");
                 }
@@ -193,7 +209,7 @@ int SocketServer::run()
                 n = data_size;
                 while (n > 0) 
                 {
-                    nwrite = write(fd, buf + data_size - n, n);
+                    nwrite = write(events_[i].data.fd, buf, n);
                     if (nwrite == -1 && errno != EAGAIN)
                     {
                         perror("write error");
@@ -201,7 +217,7 @@ int SocketServer::run()
                     break;
                     n -= nwrite;
                 }
-                close(fd); 
+                close(events_[i].data.fd); 
 			}
 			else
 			{
@@ -215,28 +231,10 @@ int SocketServer::run()
 	close(listen_fd_);
 	listen_fd_ = -1;
 }
-
+/*
 int SocketServer::handle_new_connect(struct epoll_event &event)
 {
-	int socket_new;
-	struct epoll_event ev;
-	while ((socket_new = accept(listen_fd_, NULL, NULL)) > 0)
-	{
-		if (socket_new < 0)
-		{
-			perror("accept socket_new: ");
-			exit(EXIT_FAILURE); 
-		}
-		set_nonblock(socket_new);
-
-		ev.events = EPOLLIN | EPOLLET;
-		ev.data.fd = socket_new;
-		if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, socket_new, &ev) < 0)
-		{
-			perror("epoll_ctl add socket_new: ");
-			exit(EXIT_FAILURE); 
-		}
-	}
+	
 }
 
 int SocketServer::handle_message_in(struct epoll_event &event)
@@ -248,11 +246,13 @@ int SocketServer::handle_message_out(struct epoll_event &event)
 {
 
 }
-
+*/
 
 
 int main()
 {
 	SocketServer my_srv(80);
+	my_srv.run();
+
 	return 0;
 }
